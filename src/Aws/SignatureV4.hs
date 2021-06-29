@@ -4,96 +4,92 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
--- |
--- Module: Aws.SignatureV4
--- Copyright: Copyright © 2014 AlephCloud Systems, Inc.
--- License: MIT
--- Maintainer: Lars Kuhtz <lars@alephcloud.com>
--- Stability: experimental
---
--- AWS Signature Version 4
---
--- /API Version: 1.0/
---
--- <http://docs.aws.amazon.com/general/1.0/gr/signature-version-4.html>
---
-module Aws.SignatureV4
-(
+{- |
+ Module: Aws.SignatureV4
+ Copyright: Copyright © 2014 AlephCloud Systems, Inc.
+ License: MIT
+ Maintainer: Lars Kuhtz <lars@alephcloud.com>
+ Stability: experimental
 
--- * AWS General API Version
-  GeneralVersion(..)
-, generalVersionToText
-, parseGeneralVersion
+ AWS Signature Version 4
 
--- * Signature Version
-, signatureVersion
+ /API Version: 1.0/
 
--- * AWS Credentials
-, SignatureV4Credentials(..)
-, newCredentials
+ <http://docs.aws.amazon.com/general/1.0/gr/signature-version-4.html>
+-}
+module Aws.SignatureV4 (
+    -- * AWS General API Version
+    GeneralVersion (..),
+    generalVersionToText,
+    parseGeneralVersion,
 
--- $requesttypes
+    -- * Signature Version
+    signatureVersion,
 
--- * Pure signing
-, signPostRequest
-, signGetRequest
+    -- * AWS Credentials
+    SignatureV4Credentials (..),
+    newCredentials,
+    -- $requesttypes
 
--- * Signing With Cached Key
-, signPostRequestIO
-, signGetRequestIO
+    -- * Pure signing
+    signPostRequest,
+    signGetRequest,
 
--- * Authorization Info
-, AuthorizationInfo(..)
-, authorizationInfo
-, authorizationInfoQuery
-, authorizationInfoHeader
+    -- * Signing With Cached Key
+    signPostRequestIO,
+    signGetRequestIO,
 
--- * Internal
+    -- * Authorization Info
+    AuthorizationInfo (..),
+    authorizationInfo,
+    authorizationInfoQuery,
+    authorizationInfoHeader,
 
-, dateNormalizationEnabled
+    -- * Internal
+    dateNormalizationEnabled,
 
--- ** Constants
-, signingAlgorithm
+    -- ** Constants
+    signingAlgorithm,
 
--- ** Canoncial URI
-, UriPath
-, UriQuery
-, normalizeUriPath
-, normalizeUriQuery
-, CanonicalUri(..)
-, canonicalUri
+    -- ** Canoncial URI
+    UriPath,
+    UriQuery,
+    normalizeUriPath,
+    normalizeUriQuery,
+    CanonicalUri (..),
+    canonicalUri,
 
--- ** Canonical Headers
-, CanonicalHeaders(..)
-, canonicalHeaders
+    -- ** Canonical Headers
+    CanonicalHeaders (..),
+    canonicalHeaders,
 
--- ** SignedHeaders
-, SignedHeaders
-, signedHeaders
+    -- ** SignedHeaders
+    SignedHeaders,
+    signedHeaders,
 
--- ** Canonical Request
-, CanonicalRequest(..)
-, canonicalRequest
-, HashedCanonicalRequest
-, hashedCanonicalRequest
+    -- ** Canonical Request
+    CanonicalRequest (..),
+    canonicalRequest,
+    HashedCanonicalRequest,
+    hashedCanonicalRequest,
 
--- ** Credenital Scope
-, CredentialScope(..)
-, credentialScopeToText
+    -- ** Credenital Scope
+    CredentialScope (..),
+    credentialScopeToText,
 
--- ** String to Sign
-, StringToSign(..)
-, stringToSign
+    -- ** String to Sign
+    StringToSign (..),
+    stringToSign,
 
--- ** Signing Key
-, SigningKey(..)
-, signingKey
+    -- ** Signing Key
+    SigningKey (..),
+    signingKey,
 
--- * Signature
-, Signature(..)
+    -- * Signature
+    Signature (..),
 
--- ** Low level signing function
-, requestSignature
+    -- ** Low level signing function
+    requestSignature,
 ) where
 
 -- import Aws.Core
@@ -106,14 +102,14 @@ import Control.Monad.IO.Class
 
 import Crypto.Hash
 
-import Data.Byteable
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
 import qualified Blaze.ByteString.Builder as BB
 import qualified Blaze.ByteString.Builder.Char8 as BB8
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
-import Data.Char
+import qualified Data.ByteString.Char8 as B8
+import Data.Byteable
 import qualified Data.CaseInsensitive as CI
+import Data.Char
 import Data.IORef
 import qualified Data.List as L
 import Data.Monoid
@@ -144,7 +140,6 @@ import qualified Network.HTTP.Types as HTTP
 -- Constants
 
 -- | We only support SHA256 since SHA1 has been deprecated
---
 signingAlgorithm :: IsString a => a
 signingAlgorithm = "AWS4-HMAC-SHA256"
 
@@ -166,37 +161,40 @@ signatureVersion = "4"
 -- -------------------------------------------------------------------------- --
 -- Signature V4 Credentials
 
-type SigV4Key = ((B.ByteString,B.ByteString),(B.ByteString,B.ByteString))
+type SigV4Key = ((B.ByteString, B.ByteString), (B.ByteString, B.ByteString))
 
--- | AWS access credentials.
---
--- This type is compatible with the 'Credential' type from the
--- <https://hackage.haskell.org/package/aws aws package>. You may
--- use the following function to get a 'SignatureV4Credential'
--- from a 'Credential':
---
--- > cred2credv4 :: Credential -> SignatureV4Credential
--- > #if MIN_VERSION_aws(0,9,2)
--- > cred2credv4 (Credential a b c _) = SignatureV4Credential a b c
--- > #else
--- > cred2credv4 (Credential a b c) = SignatureV4Credential a b c
--- > #endif
---
+{- | AWS access credentials.
+
+ This type is compatible with the 'Credential' type from the
+ <https://hackage.haskell.org/package/aws aws package>. You may
+ use the following function to get a 'SignatureV4Credential'
+ from a 'Credential':
+
+ > cred2credv4 :: Credential -> SignatureV4Credential
+ > #if MIN_VERSION_aws(0,9,2)
+ > cred2credv4 (Credential a b c _) = SignatureV4Credential a b c
+ > #else
+ > cred2credv4 (Credential a b c) = SignatureV4Credential a b c
+ > #endif
+-}
 data SignatureV4Credentials = SignatureV4Credentials
     { sigV4AccessKeyId :: B.ByteString
     , sigV4SecretAccessKey :: B.ByteString
-    , sigV4SigningKeys :: IORef [SigV4Key]
-    -- ^ used internally for caching the singing key
+    , -- | used internally for caching the singing key
+      sigV4SigningKeys :: IORef [SigV4Key]
     , sigV4SecurityToken :: Maybe B.ByteString
     }
     deriving (Typeable, Generic)
 
-newCredentials
-    :: (Functor m, MonadIO m)
-    => B.ByteString -- ^ Access Key ID
-    -> B.ByteString -- ^ Secret Access Key
-    -> Maybe B.ByteString -- ^ Security Token
-    -> m SignatureV4Credentials
+newCredentials ::
+    (Functor m, MonadIO m) =>
+    -- | Access Key ID
+    B.ByteString ->
+    -- | Secret Access Key
+    B.ByteString ->
+    -- | Security Token
+    Maybe B.ByteString ->
+    m SignatureV4Credentials
 newCredentials accessKeyId secretAccessKey securityToken = do
     signingKeysRef <- liftIO $ newIORef []
     return $ SignatureV4Credentials accessKeyId secretAccessKey signingKeysRef securityToken
@@ -212,47 +210,48 @@ newtype CanonicalUri = CanonicalUri B8.ByteString
 
 instance NFData CanonicalUri
 
--- | Compute canonical URI
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
---
--- The input is assumed to be an absolute URI. If the first segment is @..@ it
--- is kept as is. Most likely such an URI is invalid.
---
-canonicalUri
-    :: UriPath
-    -> UriQuery
-    -> CanonicalUri
-canonicalUri path query = CanonicalUri . BB.toByteString
-    $ HTTP.encodePathSegments normalizedPath
-    <> BB.copyByteString "\n"
-    <> HTTP.renderQueryText False normalizedQuery
+{- | Compute canonical URI
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
+
+ The input is assumed to be an absolute URI. If the first segment is @..@ it
+ is kept as is. Most likely such an URI is invalid.
+-}
+canonicalUri ::
+    UriPath ->
+    UriQuery ->
+    CanonicalUri
+canonicalUri path query =
+    CanonicalUri . BB.toByteString $
+        HTTP.encodePathSegments normalizedPath
+            <> BB.copyByteString "\n"
+            <> HTTP.renderQueryText False normalizedQuery
   where
     normalizedPath = case normalizeUriPath path of
         [] -> [""]
         a -> a
-    normalizedQuery = L.sort
-        . map (second $ maybe (Just "") Just)
-        $ normalizeUriQuery query
+    normalizedQuery =
+        L.sort
+            . map (second $ maybe (Just "") Just)
+            $ normalizeUriQuery query
 
 -- | Normalize URI Path according to RFC 3986 (6.2.2)
---
 normalizeUriPath :: UriPath -> UriPath
 normalizeUriPath =
     -- normalize case and percent encoding
     HTTP.decodePathSegments . BB.toByteString . HTTP.encodePathSegments
-    -- remove all "." segments
-    -- remove all inner and trailing ".." segments (ignore leading ".." segments)
-    . reverse . L.foldl' f []
+        -- remove all "." segments
+        -- remove all inner and trailing ".." segments (ignore leading ".." segments)
+        . reverse
+        . L.foldl' f []
   where
     f [] ".." = [".."]
-    f (_:t) ".." = t
+    f (_ : t) ".." = t
     f l "." = l
-    f ("":t) a = a:t
-    f l a = a:l
+    f ("" : t) a = a : t
+    f l a = a : l
 
 -- | Normalize URI Query according to RFC 3986 (6.2.2)
---
 normalizeUriQuery :: UriQuery -> UriQuery
 normalizeUriQuery =
     -- normalize case and percent encoding
@@ -266,28 +265,28 @@ newtype CanonicalHeaders = CanonicalHeaders B8.ByteString
 
 instance NFData CanonicalHeaders
 
--- | Compute canonical HTTP headers
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
---
--- It is assumed (and not checked) that the header values comform with the
--- definitions in RFC 2661. In particular non-comformant usage of quotation
--- characters may lead to invalid results.
---
-canonicalHeaders :: HTTP.RequestHeaders -> CanonicalHeaders
-canonicalHeaders = CanonicalHeaders
-    . foldHeaders
-    . L.sort -- Note this /must/ be a stable sorting algorithm!
+{- | Compute canonical HTTP headers
 
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
+
+ It is assumed (and not checked) that the header values comform with the
+ definitions in RFC 2661. In particular non-comformant usage of quotation
+ characters may lead to invalid results.
+-}
+canonicalHeaders :: HTTP.RequestHeaders -> CanonicalHeaders
+canonicalHeaders =
+    CanonicalHeaders
+        . foldHeaders
+        . L.sort -- Note this /must/ be a stable sorting algorithm!
+  where
     -- The following breaks the AWS test suite, since the tests in that
     -- test suite use an invalid date!
     --
-#ifdef SIGN_V4_NORMALIZE_DATE
-    . map canonicalDate
-#endif
-  where
+    -- #ifdef SIGN_V4_NORMALIZE_DATE
+    --         . map canonicalDate
+    -- #endif
 
-#ifdef SIGN_V4_NORMALIZE_DATE
+    -- #ifdef SIGN_V4_NORMALIZE_DATE
     canonicalDate :: HTTP.Header -> HTTP.Header
     canonicalDate ("date", d) = ("date", formatDate)
       where
@@ -295,38 +294,38 @@ canonicalHeaders = CanonicalHeaders
             Nothing -> d
             Just utc -> B8.pack $ fTime canonicalDateHeaderFormat utc
     canonicalDate a = a
-#endif
+    -- #endif
 
     -- fold headers with the same name into a single HTTP header with
     -- comma separated values. Make all header names lower-case and
     -- terminate all headers by a new-line character.
     foldHeaders :: HTTP.RequestHeaders -> B8.ByteString
     foldHeaders [] = ""
-    foldHeaders ((h0,v0):t) = BB.toByteString $ snd run <> bChar '\n'
+    foldHeaders ((h0, v0) : t) = BB.toByteString $ snd run <> bChar '\n'
       where
         run = L.foldl' f (h0, bBS (CI.foldedCase h0) <> bChar ':' <> trimWs v0) t
-        f (ch, a) (h,v) = if ch == h
-            then (h, a <> bChar ',' <> trimWs v)
-            else (h, a <> bChar '\n' <> bBS (CI.foldedCase h) <> bChar ':' <> trimWs v)
+        f (ch, a) (h, v) =
+            if ch == h
+                then (h, a <> bChar ',' <> trimWs v)
+                else (h, a <> bChar '\n' <> bBS (CI.foldedCase h) <> bChar ':' <> trimWs v)
 
-    trimWs = (\(_,_,c) -> c)
-        -- This strips all leading whitespace and collapses inner unquoted whitespace
-        . B8.foldl' f (False, ' ', bBS "")
-        -- This strips all trailing whitespace
-        . fst . B8.spanEnd isSpace
+    trimWs =
+        (\(_, _, c) -> c)
+            -- This strips all leading whitespace and collapses inner unquoted whitespace
+            . B8.foldl' f (False, ' ', bBS "")
+            -- This strips all trailing whitespace
+            . fst
+            . B8.spanEnd isSpace
       where
         -- escaping (we assume that we are withing quote but don't check!)
         f (s, '\\', b) x = (s, x, b <> bChar x)
-
         -- an unescaped quote toggles the quoting mode
         f (s, _, b) '"' = (not s, '"', b <> bChar '"')
-
         -- white space outside of quotation
         f (False, ' ', b) x
             | isSpace x = (False, ' ', b)
         f (False, _, b) x
             | isSpace x = (False, ' ', b <> bChar ' ')
-
         -- nothing special here
         f (s, _, b) x = (s, x, b <> bChar x)
 
@@ -357,13 +356,14 @@ parseHttpDate s =
 #endif
 #endif
 
--- | Normalization of the date header breaks the AWS test suite, since the
--- tests in that test suite use an invalid date.
---
--- Date normalization is enabled by default but can be turned of via the cabal
--- (compiletime) flag @normalize-signature-v4-date@.
---
+{- | Normalization of the date header breaks the AWS test suite, since the
+ tests in that test suite use an invalid date.
+
+ Date normalization is enabled by default but can be turned of via the cabal
+ (compiletime) flag @normalize-signature-v4-date@.
+-}
 dateNormalizationEnabled :: Bool
+
 #ifdef SIGN_V4_NORMALIZE_DATE
 dateNormalizationEnabled = True
 #else
@@ -378,16 +378,17 @@ newtype SignedHeaders = SignedHeaders B8.ByteString
 
 instance NFData SignedHeaders
 
--- | Compute signed headers
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
---
+{- | Compute signed headers
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
+-}
 signedHeaders :: HTTP.RequestHeaders -> SignedHeaders
-signedHeaders = SignedHeaders
-    . B8.intercalate ";"
-    . L.nub
-    . L.sort
-    . map (CI.foldedCase . fst)
+signedHeaders =
+    SignedHeaders
+        . B8.intercalate ";"
+        . L.nub
+        . L.sort
+        . map (CI.foldedCase . fst)
 
 -- -------------------------------------------------------------------------- --
 -- Canonical Request
@@ -397,30 +398,37 @@ newtype CanonicalRequest = CanonicalRequest B8.ByteString
 
 instance NFData CanonicalRequest
 
--- | Create Canonical Request for AWS Signature Version 4
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
---
--- This functions performs normalization of the URI and the Headers which is
--- expensive. We should consider providing an alternate version of this
--- function that bypasses these steps and simply assumes that the input is
--- already canonical.
---
-canonicalRequest
-    :: HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ canonical URI Path of request
-    -> UriQuery -- ^ canonical URI Query of request
-    -> HTTP.RequestHeaders -- ^ canonical request headers
-    -> B.ByteString -- ^ Request payload
-    -> CanonicalRequest
+{- | Create Canonical Request for AWS Signature Version 4
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-canonical-request.html>
+
+ This functions performs normalization of the URI and the Headers which is
+ expensive. We should consider providing an alternate version of this
+ function that bypasses these steps and simply assumes that the input is
+ already canonical.
+-}
+canonicalRequest ::
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | canonical URI Path of request
+    UriPath ->
+    -- | canonical URI Query of request
+    UriQuery ->
+    -- | canonical request headers
+    HTTP.RequestHeaders ->
+    -- | Request payload
+    B.ByteString ->
+    CanonicalRequest
 canonicalRequest method path query headers payload =
-    CanonicalRequest $ B8.intercalate "\n"
-        [ method
-        , cUri
-        , cHeaders
-        , sHeaders
-        , signingHash16 payload
-        ]
+    CanonicalRequest $
+        B8.intercalate
+            "\n"
+            [ method
+            , cUri
+            , cHeaders
+            , sHeaders
+            , signingHash16 payload
+            ]
   where
     CanonicalUri cUri = canonicalUri path query
     CanonicalHeaders cHeaders = canonicalHeaders headers
@@ -434,8 +442,9 @@ newtype HashedCanonicalRequest = HashedCanonicalRequest B8.ByteString
 instance NFData HashedCanonicalRequest
 
 hashedCanonicalRequest :: CanonicalRequest -> HashedCanonicalRequest
-hashedCanonicalRequest (CanonicalRequest r) = HashedCanonicalRequest
-    $ signingHash16 r
+hashedCanonicalRequest (CanonicalRequest r) =
+    HashedCanonicalRequest $
+        signingHash16 r
 
 -- -------------------------------------------------------------------------- --
 -- Credential Scope
@@ -452,28 +461,33 @@ instance NFData CredentialScope
 instance Eq CredentialScope where
     CredentialScope a0 b0 c0 == CredentialScope a1 b1 c1 =
         utctDay a0 == utctDay a1
-        && b0 == b1
-        && c0 == c1
+            && b0 == b1
+            && c0 == c1
 
 credentialScopeToText :: (IsString a, Monoid a) => CredentialScope -> a
 credentialScopeToText s =
     credentialScopeDateText s
-    <> "/" <> toText (credentialScopeRegion s)
-    <> "/" <> toText (credentialScopeService s)
-    <> "/" <> terminationString
+        <> "/"
+        <> toText (credentialScopeRegion s)
+        <> "/"
+        <> toText (credentialScopeService s)
+        <> "/"
+        <> terminationString
 
 parseCredentialScope :: (Monad m, P.CharParsing m) => m CredentialScope
-parseCredentialScope = CredentialScope
-    <$> time
-    <*> (P.char '/' *> parseRegion)
-    <*> (P.char '/' *> parseServiceNamespace)
-    <* (P.char '/' *> P.text terminationString)
+parseCredentialScope =
+    CredentialScope
+        <$> time
+        <*> (P.char '/' *> parseRegion)
+        <*> (P.char '/' *> parseServiceNamespace)
+        <* (P.char '/' *> P.text terminationString)
   where
     time = do
         str <- P.count 8 P.digit
         case p credentialScopeDateFormat str of
-            Nothing -> fail $ "failed to parse credential scope date: " <> str
+            Nothing -> error $ "failed to parse credential scope date: " <> str
             Just t -> return t
+
 #if MIN_VERSION_time(1,5,0)
     p = parseTimeM True defaultTimeLocale
 #else
@@ -494,10 +508,11 @@ instance AwsType CredentialScope where
     parse = parseCredentialScope
 
 instance Q.Arbitrary CredentialScope where
-    arbitrary = CredentialScope
-        <$> Q.arbitrary
-        <*> Q.arbitrary
-        <*> Q.arbitrary
+    arbitrary =
+        CredentialScope
+            <$> Q.arbitrary
+            <*> Q.arbitrary
+            <*> Q.arbitrary
 
 -- -------------------------------------------------------------------------- --
 -- String to Sign
@@ -507,21 +522,27 @@ newtype StringToSign = StringToSign B8.ByteString
 
 instance NFData StringToSign
 
--- | Create the String to Sign for AWS Signature Version 4
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-string-to-sign.html>
---
-stringToSign
-    :: UTCTime -- ^ request date
-    -> CredentialScope -- ^ credential scope for the request
-    -> CanonicalRequest -- ^ canonical request
-    -> StringToSign
-stringToSign date credentialScope request = StringToSign $ B8.intercalate "\n"
-    [ signingAlgorithm
-    , fTime signingStringDateFormat date
-    , T.encodeUtf8 $ credentialScopeToText credentialScope
-    , hashedRequest
-    ]
+{- | Create the String to Sign for AWS Signature Version 4
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-create-string-to-sign.html>
+-}
+stringToSign ::
+    -- | request date
+    UTCTime ->
+    -- | credential scope for the request
+    CredentialScope ->
+    -- | canonical request
+    CanonicalRequest ->
+    StringToSign
+stringToSign date credentialScope request =
+    StringToSign $
+        B8.intercalate
+            "\n"
+            [ signingAlgorithm
+            , fTime signingStringDateFormat date
+            , T.encodeUtf8 $ credentialScopeToText credentialScope
+            , hashedRequest
+            ]
   where
     HashedCanonicalRequest hashedRequest = hashedCanonicalRequest request
 
@@ -531,18 +552,18 @@ signingStringDateFormat = "%Y%m%dT%H%M%SZ"
 -- -------------------------------------------------------------------------- --
 -- Derivation of Signing Key
 
--- | This key can be computed once and cached. It is valid for all requests
--- to the same service and the region till 00:00:00 UTC time.
---
+{- | This key can be computed once and cached. It is valid for all requests
+ to the same service and the region till 00:00:00 UTC time.
+-}
 newtype SigningKey = SigningKey B.ByteString
     deriving (Show, Read, Eq, Ord, Typeable, Generic)
 
 instance NFData SigningKey
 
--- | Derive the signing key
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-calculate-signature.html>
---
+{- | Derive the signing key
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-calculate-signature.html>
+-}
 signingKey :: SignatureV4Credentials -> CredentialScope -> SigningKey
 signingKey credentials s = SigningKey kSigning
   where
@@ -567,25 +588,25 @@ newtype Signature = Signature B8.ByteString
 
 instance NFData Signature
 
--- | Compute an AWS Signature Version 4
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-calculate-signature.html>
---
-requestSignature
-    :: SigningKey
-    -> StringToSign
-    -> Signature
+{- | Compute an AWS Signature Version 4
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-calculate-signature.html>
+-}
+requestSignature ::
+    SigningKey ->
+    StringToSign ->
+    Signature
 requestSignature (SigningKey key) (StringToSign str) =
     Signature . B16.encode $ signingHmac key str
 
 -- -------------------------------------------------------------------------- --
 -- Authorization Info
 
-authorizationCredential
-    :: (IsString a, Monoid a)
-    => SignatureV4Credentials
-    -> CredentialScope
-    -> a
+authorizationCredential ::
+    (IsString a, Monoid a) =>
+    SignatureV4Credentials ->
+    CredentialScope ->
+    a
 authorizationCredential creds credScope =
     (fromString . B8.unpack . sigV4AccessKeyId) creds <> "/" <> toText credScope
 
@@ -597,149 +618,175 @@ data AuthorizationInfo = AuthorizationInfo
     , authzInfoSignature :: !B8.ByteString
     }
 
-authorizationInfo
-    :: SignatureV4Credentials
-    -> CredentialScope
-    -> SignedHeaders
-    -> UTCTime
-    -> Signature
-    -> AuthorizationInfo
-authorizationInfo creds credScope (SignedHeaders hdrs) date (Signature sig) = AuthorizationInfo
-    { authzInfoAlgorithm = signingAlgorithm
-    , authzInfoCredential = authorizationCredential creds credScope
-    , authzInfoSignedHeaders = hdrs
-    , authzInfoDate = date
-    , authzInfoSignature = sig
-    }
+authorizationInfo ::
+    SignatureV4Credentials ->
+    CredentialScope ->
+    SignedHeaders ->
+    UTCTime ->
+    Signature ->
+    AuthorizationInfo
+authorizationInfo creds credScope (SignedHeaders hdrs) date (Signature sig) =
+    AuthorizationInfo
+        { authzInfoAlgorithm = signingAlgorithm
+        , authzInfoCredential = authorizationCredential creds credScope
+        , authzInfoSignedHeaders = hdrs
+        , authzInfoDate = date
+        , authzInfoSignature = sig
+        }
 
 authorizationInfoQuery :: AuthorizationInfo -> UriQuery
 authorizationInfoQuery authz =
     [ ("X-Amz-Signature", Just . T.decodeUtf8 $ authzInfoSignature authz)
     ]
 
-authorizationInfoHeader
-    :: AuthorizationInfo
-    -> HTTP.RequestHeaders
-authorizationInfoHeader authz = [ ("Authorization", authzInfo) ]
+authorizationInfoHeader ::
+    AuthorizationInfo ->
+    HTTP.RequestHeaders
+authorizationInfoHeader authz = [("Authorization", authzInfo)]
   where
-    authzInfo = authzInfoAlgorithm authz
-        <> " Credential=" <> authzInfoCredential authz
-        <> ", SignedHeaders=" <> authzInfoSignedHeaders authz
-        <> ", Signature=" <> authzInfoSignature authz
+    authzInfo =
+        authzInfoAlgorithm authz
+            <> " Credential="
+            <> authzInfoCredential authz
+            <> ", SignedHeaders="
+            <> authzInfoSignedHeaders authz
+            <> ", Signature="
+            <> authzInfoSignature authz
 
 -- -------------------------------------------------------------------------- --
 -- Signing Function
 
--- $requesttypes
--- = AWS Signature 4 Request Types
---
--- There are two types of version 4 signed requests for GET and for POST
--- requests
---
--- <http://docs.aws.amazon.com/general/1.0/gr/sigv4-signed-request-examples.html>
---
--- == Common Parameters
---
--- Both request types must include the following information in some way
---
--- <http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html>
---
--- * Host
--- * Action
--- * Date
--- * Authorization parameters:
---
---     * Algorithm
---     * Credential
---     * Signed headers
---     * signature
---
--- == POST Request
---
--- Computed by 'signPostRequest' or 'signPostRequestIO'.
---
--- Headers:
---
--- * @host@,
--- * @x-amz-date@ (or @date@),
--- * @authorization@ (containing all authorization parameters), and
--- * @content-type: application/x-www-form-urlencoded. charset=utf-8@.
---
--- The query parameters (including @Action@ and @Version@) are placed in the body.
---
--- == GET Request
---
--- Computed with 'signGetRequest' or 'signGetRequestIO'.
---
--- Headers:
---
--- * @host@
---
--- TODO why is this @content-type@ required?
---
--- Query:
---
--- * @Action@,
--- * @Version@,
--- * @X-Amz-Algorithm@,
--- * @X-Amz-Credential@,
--- * Authorization parameters:
---
---     * @X-Amz-Date@,
---     * @X-Amz-SignedHeaders@,
---     * @X-Amz-Signature@,
---     * @SignedHeaders@,
---     * @Signature@.
---
--- (NOTE that the AWS specification considers @X-Amz-Date@ an authorization parameter
--- only for URI requests. So for URI requests there are five authorization parameters
--- whereas otherwise there are just four.)
---
--- Somewhat surprisingly (and covered neither by the AWS Signature V4 test suite
--- nor by the AWS API reference) the canonical request includes all authorization
--- parameters except for the signature.
---
--- TODO: is it possible to do a POST with this style and place the query in the body?
---
+{- $requesttypes
+ = AWS Signature 4 Request Types
 
--- | Compute an AWS Signature Version 4
---
--- This version computes the derivied signing key each time it is invoked
---
--- The request headers /must/ include the @host@ header.
--- The query /must/ include the @Action@ parameter.
---
-signGetRequest
-    :: SignatureV4Credentials -- ^ AWS credentials
-    -> Region -- ^ request region
-    -> ServiceNamespace -- ^ service of the request
-    -> UTCTime -- ^ request time
-    -> HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ URI Path of request
-    -> UriQuery -- ^ URI Query of request
-    -> HTTP.RequestHeaders -- ^ request headers
-    -> B.ByteString -- ^ request payload
-    -> Either String UriQuery
+ There are two types of version 4 signed requests for GET and for POST
+ requests
+
+ <http://docs.aws.amazon.com/general/1.0/gr/sigv4-signed-request-examples.html>
+
+ == Common Parameters
+
+ Both request types must include the following information in some way
+
+ <http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html>
+
+ * Host
+ * Action
+ * Date
+ * Authorization parameters:
+
+     * Algorithm
+     * Credential
+     * Signed headers
+     * signature
+
+ == POST Request
+
+ Computed by 'signPostRequest' or 'signPostRequestIO'.
+
+ Headers:
+
+ * @host@,
+ * @x-amz-date@ (or @date@),
+ * @authorization@ (containing all authorization parameters), and
+ * @content-type: application/x-www-form-urlencoded. charset=utf-8@.
+
+ The query parameters (including @Action@ and @Version@) are placed in the body.
+
+ == GET Request
+
+ Computed with 'signGetRequest' or 'signGetRequestIO'.
+
+ Headers:
+
+ * @host@
+
+ TODO why is this @content-type@ required?
+
+ Query:
+
+ * @Action@,
+ * @Version@,
+ * @X-Amz-Algorithm@,
+ * @X-Amz-Credential@,
+ * Authorization parameters:
+
+     * @X-Amz-Date@,
+     * @X-Amz-SignedHeaders@,
+     * @X-Amz-Signature@,
+     * @SignedHeaders@,
+     * @Signature@.
+
+ (NOTE that the AWS specification considers @X-Amz-Date@ an authorization parameter
+ only for URI requests. So for URI requests there are five authorization parameters
+ whereas otherwise there are just four.)
+
+ Somewhat surprisingly (and covered neither by the AWS Signature V4 test suite
+ nor by the AWS API reference) the canonical request includes all authorization
+ parameters except for the signature.
+
+ TODO: is it possible to do a POST with this style and place the query in the body?
+-}
+
+{- | Compute an AWS Signature Version 4
+
+ This version computes the derivied signing key each time it is invoked
+
+ The request headers /must/ include the @host@ header.
+ The query /must/ include the @Action@ parameter.
+-}
+signGetRequest ::
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    -- | request region
+    Region ->
+    -- | service of the request
+    ServiceNamespace ->
+    -- | request time
+    UTCTime ->
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | URI Path of request
+    UriPath ->
+    -- | URI Query of request
+    UriQuery ->
+    -- | request headers
+    HTTP.RequestHeaders ->
+    -- | request payload
+    B.ByteString ->
+    Either String UriQuery
 signGetRequest credentials region service date = signGetRequest_ key credentials region service date
   where
-    key = signingKey credentials CredentialScope
-        { credentialScopeDate = date
-        , credentialScopeRegion = region
-        , credentialScopeService = service
-        }
+    key =
+        signingKey
+            credentials
+            CredentialScope
+                { credentialScopeDate = date
+                , credentialScopeRegion = region
+                , credentialScopeService = service
+                }
 
-signGetRequest_
-    :: SigningKey
-    -> SignatureV4Credentials -- ^ AWS credentials
-    -> Region -- ^ request region
-    -> ServiceNamespace -- ^ service of the request
-    -> UTCTime -- ^ request time
-    -> HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ URI Path of request
-    -> UriQuery -- ^ URI Query of request
-    -> HTTP.RequestHeaders -- ^ request headers
-    -> B.ByteString -- ^ request payload
-    -> Either String UriQuery
+signGetRequest_ ::
+    SigningKey ->
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    -- | request region
+    Region ->
+    -- | service of the request
+    ServiceNamespace ->
+    -- | request time
+    UTCTime ->
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | URI Path of request
+    UriPath ->
+    -- | URI Query of request
+    UriQuery ->
+    -- | request headers
+    HTTP.RequestHeaders ->
+    -- | request payload
+    B.ByteString ->
+    Either String UriQuery
 signGetRequest_ key credentials region service date method path query headers payload = do
     case lookup "host" headers of
         Nothing -> Left "Failed to sign request with Signature V4: host header is missing"
@@ -749,65 +796,89 @@ signGetRequest_ key credentials region service date method path query headers pa
         Just _ -> return ()
     return $ queryToSign <> authorizationInfoQuery authz
   where
-    queryToSign = query <>
-        [ ("X-Amz-Algorithm", Just signingAlgorithm)
-        , ("X-Amz-Credential", Just $ authorizationCredential credentials credentialScope)
-        , ("X-Amz-Date", Just $ fTime signingStringDateFormat date)
-        , ("X-Amz-SignedHeaders", let SignedHeaders h = shdrs in Just (T.decodeUtf8 h))
-        , ("X-Amz-Security-Token", T.decodeUtf8 <$> sigV4SecurityToken credentials)
-        ]
+    queryToSign =
+        query
+            <> [ ("X-Amz-Algorithm", Just signingAlgorithm)
+               , ("X-Amz-Credential", Just $ authorizationCredential credentials credentialScope)
+               , ("X-Amz-Date", Just $ fTime signingStringDateFormat date)
+               , ("X-Amz-SignedHeaders", let SignedHeaders h = shdrs in Just (T.decodeUtf8 h))
+               , ("X-Amz-Security-Token", T.decodeUtf8 <$> sigV4SecurityToken credentials)
+               ]
     authz = authorizationInfo credentials credentialScope shdrs date sig
     sig = requestSignature key str
     shdrs = signedHeaders headers
     request = canonicalRequest method path queryToSign headers payload
     str = stringToSign date credentialScope request
-    credentialScope = CredentialScope
-        { credentialScopeDate = date
-        , credentialScopeRegion = region
-        , credentialScopeService = service
-        }
+    credentialScope =
+        CredentialScope
+            { credentialScopeDate = date
+            , credentialScopeRegion = region
+            , credentialScopeService = service
+            }
 
--- | Compute an AWS Signature Version 4
---
--- This version computes the derivied signing key each time it is invoked
---
--- The request headers /must/ include the @host@ header.
--- The query /must/ include the @Action@ parameter.
---
--- The @x-amz-date@ header is generated by the code. A possibly existing
--- @x-amz-date@ header or @date@ header is replaced.
---
-signPostRequest
-    :: SignatureV4Credentials -- ^ AWS credentials
-    -> Region -- ^ request region
-    -> ServiceNamespace -- ^ service of the request
-    -> UTCTime -- ^ request time
-    -> HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ URI Path of request
-    -> UriQuery -- ^ URI Query of request
-    -> HTTP.RequestHeaders -- ^ request headers
-    -> B.ByteString -- ^ request payload
-    -> Either String HTTP.RequestHeaders
+{- | Compute an AWS Signature Version 4
+
+ This version computes the derivied signing key each time it is invoked
+
+ The request headers /must/ include the @host@ header.
+ The query /must/ include the @Action@ parameter.
+
+ The @x-amz-date@ header is generated by the code. A possibly existing
+ @x-amz-date@ header or @date@ header is replaced.
+-}
+signPostRequest ::
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    -- | request region
+    Region ->
+    -- | service of the request
+    ServiceNamespace ->
+    -- | request time
+    UTCTime ->
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | URI Path of request
+    UriPath ->
+    -- | URI Query of request
+    UriQuery ->
+    -- | request headers
+    HTTP.RequestHeaders ->
+    -- | request payload
+    B.ByteString ->
+    Either String HTTP.RequestHeaders
 signPostRequest credentials region service date = signPostRequest_ key credentials region service date
   where
-    key = signingKey credentials CredentialScope
-        { credentialScopeDate = date
-        , credentialScopeRegion = region
-        , credentialScopeService = service
-        }
+    key =
+        signingKey
+            credentials
+            CredentialScope
+                { credentialScopeDate = date
+                , credentialScopeRegion = region
+                , credentialScopeService = service
+                }
 
-signPostRequest_
-    :: SigningKey
-    -> SignatureV4Credentials -- ^ AWS credentials
-    -> Region -- ^ request region
-    -> ServiceNamespace -- ^ service of the request
-    -> UTCTime -- ^ request time
-    -> HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ URI Path of request
-    -> UriQuery -- ^ URI Query of request
-    -> HTTP.RequestHeaders -- ^ request headers
-    -> B.ByteString -- ^ request payload
-    -> Either String HTTP.RequestHeaders -- ^ the updated HTTP headers
+signPostRequest_ ::
+    SigningKey ->
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    -- | request region
+    Region ->
+    -- | service of the request
+    ServiceNamespace ->
+    -- | request time
+    UTCTime ->
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | URI Path of request
+    UriPath ->
+    -- | URI Query of request
+    UriQuery ->
+    -- | request headers
+    HTTP.RequestHeaders ->
+    -- | request payload
+    B.ByteString ->
+    -- | the updated HTTP headers
+    Either String HTTP.RequestHeaders
 signPostRequest_ key credentials region service date method path query headers payload = do
     case lookup "host" headers of
         Nothing -> Left "Failed to sign request with Signature V4: host header is missing"
@@ -818,111 +889,128 @@ signPostRequest_ key credentials region service date method path query headers p
     --    Nothing -> Left "Failed to sign request with Signature V4: Action parameter is missing"
     --    Just _ -> return ()
     return $ headersWithDate <> authorizationInfoHeader authz
-
   where
     authz = authorizationInfo credentials credentialScope shdrs date sig
     sig = requestSignature key str
     shdrs = signedHeaders headersWithDate
     request = canonicalRequest method path query headersWithDate payload
     str = stringToSign date credentialScope request
-    credentialScope = CredentialScope
-        { credentialScopeDate = date
-        , credentialScopeRegion = region
-        , credentialScopeService = service
-        }
-    headersWithDate = ("x-amz-date", fTime signingStringDateFormat date)
-        : filter (\x -> fst x /= "date" && fst x /= "x-amz-date") headers
-        ++ maybe [] ((:[]) . ("X-Amz-Security-Token",)) (sigV4SecurityToken credentials)
+    credentialScope =
+        CredentialScope
+            { credentialScopeDate = date
+            , credentialScopeRegion = region
+            , credentialScopeService = service
+            }
+    headersWithDate =
+        ("x-amz-date", fTime signingStringDateFormat date) :
+        filter (\x -> fst x /= "date" && fst x /= "x-amz-date") headers
+            ++ maybe [] ((: []) . ("X-Amz-Security-Token",)) (sigV4SecurityToken credentials)
 
 -- -------------------------------------------------------------------------- --
 -- Sign Request in IO
 
--- |
--- The request headers /must/ include the @host@ header.
--- The query /must/ include the @Action@ parameter.
---
-signGetRequestIO
-    :: SignatureV4Credentials -- ^ AWS credentials
-    -> Region
-    -> ServiceNamespace
-    -> UTCTime
-    -> HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ URI Path of request
-    -> UriQuery -- ^ URI Query of request
-    -> HTTP.RequestHeaders -- ^ request headers
-    -> B.ByteString -- ^ request payload
-    -> IO (Either String UriQuery)
+{- |
+ The request headers /must/ include the @host@ header.
+ The query /must/ include the @Action@ parameter.
+-}
+signGetRequestIO ::
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    Region ->
+    ServiceNamespace ->
+    UTCTime ->
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | URI Path of request
+    UriPath ->
+    -- | URI Query of request
+    UriQuery ->
+    -- | request headers
+    HTTP.RequestHeaders ->
+    -- | request payload
+    B.ByteString ->
+    IO (Either String UriQuery)
 signGetRequestIO credentials region service date method path query headers payload = do
     key <- getSigningKey credentials region service
     return $ signGetRequest_ key credentials region service date method path query headers payload
 
--- |
--- The request headers /must/ include the @host@ header.
--- The query /must/ include the @Action@ parameter.
---
--- The @x-amz-date@ header is generated by the code. A possibly existing
--- @x-amz-date@ header or @date@ header is replaced.
---
-signPostRequestIO
-    :: SignatureV4Credentials -- ^ AWS credentials
-    -> Region
-    -> ServiceNamespace
-    -> UTCTime
-    -> HTTP.Method -- ^ HTTP method of request
-    -> UriPath -- ^ URI Path of request
-    -> UriQuery -- ^ URI Query of request
-    -> HTTP.RequestHeaders -- ^ request headers
-    -> B.ByteString -- ^ request payload
-    -> IO (Either String HTTP.RequestHeaders)
+{- |
+ The request headers /must/ include the @host@ header.
+ The query /must/ include the @Action@ parameter.
+
+ The @x-amz-date@ header is generated by the code. A possibly existing
+ @x-amz-date@ header or @date@ header is replaced.
+-}
+signPostRequestIO ::
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    Region ->
+    ServiceNamespace ->
+    UTCTime ->
+    -- | HTTP method of request
+    HTTP.Method ->
+    -- | URI Path of request
+    UriPath ->
+    -- | URI Query of request
+    UriQuery ->
+    -- | request headers
+    HTTP.RequestHeaders ->
+    -- | request payload
+    B.ByteString ->
+    IO (Either String HTTP.RequestHeaders)
 signPostRequestIO credentials region service date method path query headers payload = do
     key <- getSigningKey credentials region service
     return $ signPostRequest_ key credentials region service date method path query headers payload
 
--- | Get cached signing key
---
--- This should be improved:
---
--- 1. use an MVar instead of an IORef (for thread safety)
---
--- 2. use a better cache data structure (either a dense vector of MVars or
---    a hashmap.
---
--- 3. use more efficient value representations:
---
---    * Hashable instance for the index (or use a Int directly)
---    * represent dates as number of days or seconds (e.g. since epoche)
---
-getSigningKey
-    :: SignatureV4Credentials -- ^ AWS credentials
-    -> Region
-    -> ServiceNamespace
-    -> IO SigningKey
+{- | Get cached signing key
+
+ This should be improved:
+
+ 1. use an MVar instead of an IORef (for thread safety)
+
+ 2. use a better cache data structure (either a dense vector of MVars or
+    a hashmap.
+
+ 3. use more efficient value representations:
+
+    * Hashable instance for the index (or use a Int directly)
+    * represent dates as number of days or seconds (e.g. since epoche)
+-}
+getSigningKey ::
+    -- | AWS credentials
+    SignatureV4Credentials ->
+    Region ->
+    ServiceNamespace ->
+    IO SigningKey
 getSigningKey credentials region service = do
     date <- getCurrentTime
     let dateStr = fTime credentialScopeDateFormat date
 
     k <- atomicModifyIORef' (sigV4SigningKeys credentials) $ \cache ->
         case L.lookup idx cache of
-            Just (d,k) -> if d /= dateStr
-                then newKey date dateStr cache
-                else (cache,k)
+            Just (d, k) ->
+                if d /= dateStr
+                    then newKey date dateStr cache
+                    else (cache, k)
             Nothing -> newKey date dateStr cache
 
     return $ SigningKey k
   where
     idx = ((T.encodeUtf8 . toText) region, (T.encodeUtf8 . toText) service)
     newKey date dateStr c =
-        let SigningKey key = signingKey credentials CredentialScope
-                { credentialScopeDate = date
-                , credentialScopeRegion = region
-                , credentialScopeService =  service
-                }
-            c_ = (idx, (dateStr,key)):c
-        in key `seq` c_ `seq` (c_, key)
+        let SigningKey key =
+                signingKey
+                    credentials
+                    CredentialScope
+                        { credentialScopeDate = date
+                        , credentialScopeRegion = region
+                        , credentialScopeService = service
+                        }
+            c_ = (idx, (dateStr, key)) : c
+         in key `seq` c_ `seq` (c_, key)
 
 -- -------------------------------------------------------------------------- --
 -- Utils
 
 fTime :: IsString a => String -> UTCTime -> a
 fTime format time = fromString $ formatTime defaultTimeLocale format time
-
