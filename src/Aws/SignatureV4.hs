@@ -791,9 +791,6 @@ signGetRequest_ key credentials region service date method path query headers pa
     case lookup "host" headers of
         Nothing -> Left "Failed to sign request with Signature V4: host header is missing"
         Just _ -> return ()
-    case lookup "Action" query of
-        Nothing -> Left "Failed to sign request with Signature V4: Action parameter is missing"
-        Just _ -> return ()
     return $ queryToSign <> authorizationInfoQuery authz
   where
     queryToSign =
