@@ -799,7 +799,6 @@ signGetRequest_ key credentials region service date method path query headers pa
                , ("X-Amz-Credential", Just $ authorizationCredential credentials credentialScope)
                , ("X-Amz-Date", Just $ fTime signingStringDateFormat date)
                , ("X-Amz-SignedHeaders", let SignedHeaders h = shdrs in Just (T.decodeUtf8 h))
-               , ("X-Amz-Security-Token", T.decodeUtf8 <$> sigV4SecurityToken credentials)
                ]
     authz = authorizationInfo credentials credentialScope shdrs date sig
     sig = requestSignature key str
